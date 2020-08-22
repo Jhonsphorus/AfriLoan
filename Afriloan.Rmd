@@ -1,0 +1,439 @@
+---
+title: "AFRILOAN...making loan prediction easy"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    social: menu
+    source_code: embed
+    logo: logo3.png
+    theme: cerulean
+    storyboard: TRUE
+runtime: shiny 
+
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(shiny)
+library(shinythemes)
+library(caret)
+library(rsample)
+library(shiny)
+library(randomForest)
+library(rpart)
+library(ggplot2)
+library(DT)
+library(googledrive)
+library(gargle)
+library(jsonlite)
+library(knitr)
+library(readxl)
+library(tidyverse)
+library(htmltools)
+
+# source_code: embed # For adding source codes 
+```
+
+```{r}
+# Loading dataset
+loan1 <- read.csv("german_credit_data.csv")
+
+# Removing NA values
+loanDT <- na.omit(loan1)
+loan_data <- loanDT[,-c(1,2,3,4)]
+
+# Data Splitting
+set.seed(100)
+split_ratio <- initial_split(loan_data, prop = 0.8)
+#split_ratio <- initial_split(loan_data, prop = 0.98)
+train_afri <- training(split_ratio)
+test_afri <- testing(split_ratio)
+
+# Creating test dataset ("test_data") that will be used to predict user's output
+Housing<- c("rent")
+Saving.accounts <- c("little")
+Checking.account <- c("moderate")
+Credit.amount <- c(6948)
+Duration <- c(36)
+Purpose <- c("car")
+Risk = c("bad")
+test_data <- data.frame(Housing,Saving.accounts,Checking.account,Credit.amount,Duration,Purpose,Risk)
+
+```
+
+
+About{data-navmenu="Menu"}
+===============================================================================
+
+**ABOUT**
+
+*AFRILOAN is a financial platform that predicts the loan worthiness of customers (applicants) using the following details entered by the user:*
+
+* *Housing*
+* *Saving Account Class*
+* *Checking Account Class*
+* *Credit Amount*
+* *Duration in Month*
+* *Purpose*
+
+*The dataset used in building model that this platform make prediction with was gotten from https://www.kaggle.com/uciml/german-credit*
+
+*The essence of this project are as follow: *
+
+* *To showcase my ability of using both Flexdashboard and shiny package in R in building an interactive web application.*
+* *To build model which solve the financial sector challenges in determining the loan worthiness of applicants.*
+* *To identify meaningful trends from the dataset of the past loan collectors.*
+
+
+Loan Prediction {.storyboard data-navmenu="Menu"}
+===============================================================================
+
+Customer Detail Panel {.sidebar data-width=350}
+-------------------------------------------------------------------------------
+**Customer Detail Panel**
+
+```{r}
+# Collecting input from user
+textInput("name",label = "Applicant Name", placeholder ="Enter Applicant's Name")
+selectInput(inputId ="house",label = "Housing",choices = c(" ", "free","own","rent"))
+selectInput(inputId ="purpose",label = "Purpose",choices = c(" ", "business","car","domestic appliances","education","furniture/equipment","radio/TV","repairs","vacation/others" ))
+selectInput(inputId ="saving_acc",label = "Saving Account Class",choices = c(" ", "little","moderate","quite rich", "rich"))
+selectInput(inputId ="checking_acc",label = "Checking Account Class",choices = c(" ", "little","moderate", "rich"))
+numericInput(inputId = "credit_amount",label ="Credit Amount",value = 0)
+numericInput(inputId = "duration",label ="Duration in Month",value = 0)
+actionButton("submit", "Submit")
+
+# Creating pipeline to connect user input as test data
+test_afri2 <- reactive({
+  if(input$submit>0){
+    # Replacing values of the test_data with the user input from the UI
+    test_afri[1,1] <- input$house
+    test_afri[1,2] <- input$saving_acc
+    test_afri[1,3] <- input$checking_acc
+    test_afri[1,4] <- input$credit_amount
+    test_afri[1,5] <- input$duration
+    test_afri[1,6] <- input$purpose
+    #test_afri[1,7] <- test_afri[1,7]
+    
+  }
+  return(test_afri[1,-7]) # To return the test_afri without the column risk (-7) because it is the outcome tobe predicted 
+})
+
+
+# Fitting the risk Analysis model
+lm_model <- reactive({
+  
+  lm_2 <- randomForest(Risk~Housing+Saving.accounts+Checking.account+Credit.amount+Duration+Purpose,data=train_afri, importance=TRUE)
+  #lm_2 <- knn(train=train_afri1, test=test_afri1,cl=train_afri_label,k=20)
+  return(lm_2)
+})
+    
+
+model_pred <- reactive({
+  
+  if(input$submit>0){
+    predict(lm_model(), test_afri2(), type="class")
+  }
+})
+
+```
+
+### PREDICTION SECTION
+
+```{r}
+renderText({
+  
+  if(input$submit==0){
+    paste("No prediction yet, enter customer detail to obtain prediction")
+  }
+  else{
+    paste("Your loan default status based on the entry: ", model_pred())
+    
+  }
+})
+```
+
+
+### LOAN STATUS SECTION
+
+```{r}
+renderText({
+  
+  if(input$submit==0){
+    paste("No status yet, waiting for prediction from the model...")
+  }
+  else if(is.na(model_pred())){
+    paste("Incomplete entry")
+  }
+  else if(model_pred()=="bad"){
+    paste(input$name, "is not qualify for the loan")
+  }
+  # model_name()=="good"
+  else{
+    paste(input$name, "is qualify for the loan")
+  }
+})
+```
+
+### ADVICE SECTION
+
+```{r}
+renderPrint({
+  
+  if(input$submit==0){
+    paste("No suggestion yet, enter customer detail to obtain suggestion")
+  }
+  else if(is.na(model_pred())){
+    paste("Incomplete entry")
+  }
+  else if(model_pred()=="bad"&input$saving_acc=="little"&input$checking_acc=="little"){
+    #paste(input$name, "is not qualify for the loan")
+    #print()
+    print("Do the following to raise your chance of getting loan: ")
+    print("- Increase your saving level to at least moderate")
+    print("- Improve your checking account level to at least moderate")
+    print("- Reduce the credit amount")
+    print("- Reduce return duration below this present value")
+  }
+  else if(model_pred()=="bad"&input$saving_acc=="little"&input$checking_acc=="moderate"){
+    #paste(input$name, "is not qualify for the loan")
+    #print()
+    print("Do the following to raise your chance of getting loan: ")
+    print("- Increase your saving level to at least moderate")
+    print("- Improve your checking account level to rich")
+    print("- Reduce the credit amount")
+    print("- Reduce return duration below this present value")
+  }
+  
+  else if(model_pred()=="bad"&input$saving_acc=="little"&input$checking_acc=="rich"){
+    
+    print("Do the following to raise your chance of getting loan: ")
+    print("- Increase your saving level to at least moderate")
+    print("- Reduce the credit amount")
+    print("- Very important! reduce the return duration")
+  }
+  
+  else if(model_pred()=="bad"&input$saving_acc=="moderate"&input$checking_acc=="little"){
+    #paste(input$name, "is not qualify for the loan")
+    #print()
+    print("Do the following to raise your chance of getting loan: ")
+    print("- Increase your saving level to at least quite rich")
+    print("- Improve your checking account level to rich")
+    print("- Reduce the credit amount")
+    print("- Reduce return duration below this present value")
+  }
+  else if(model_pred()=="bad"&input$saving_acc=="moderate"&input$checking_acc=="moderate"){
+    #paste(input$name, "is not qualify for the loan")
+    #print()
+    print("Do the following to raise your chance of getting loan: ")
+    print("- Increase your saving level to quite rich")
+    print("- Improve your checking account level to rich")
+    print("- Reduce the credit amount")
+    print("- Reduce return duration below this present value")
+  }
+  
+  else if(model_pred()=="bad"&input$saving_acc=="moderate"&input$checking_acc=="rich"){
+    
+    print("Do the following to raise your chance of getting loan: ")
+    print("- Increase your saving level to rich")
+    print("- Reduce the credit amount")
+    print("- Reduce return duration below this present value")
+  }
+  
+  else if(model_pred()=="bad"&input$saving_acc=="quite rich"&input$checking_acc=="moderate"){
+    #paste(input$name, "is not qualify for the loan")
+    #print()
+    print("Do the following to raise your chance of getting loan: ")
+    print("- Improve your checking account level to rich")
+    print("- You can as well increase your saving level to rich")
+    print("- Reduce the credit amount")
+    print("- Reduce return duration below this present value")
+  }
+  
+  else if(model_pred()=="bad"&input$saving_acc=="quite rich"&input$checking_acc=="rich"){
+    #paste(input$name, "is not qualify for the loan")
+    #print()
+    print("Do the following to raise your chance of getting loan: ")
+    print("- Reduce the credit amount")
+    print("- Reduce return duration below this present value")
+  }
+  
+  else if(model_pred()=="bad"&input$saving_acc=="quite rich"&input$checking_acc=="little"){
+    #paste(input$name, "is not qualify for the loan")
+    #print()
+    print("Do the following to raise your chance of getting loan: ")
+    print("- You can as well increase your saving level to rich")
+    print("- Reduce the credit amount")
+    print("- Reduce return duration below this present value")
+  }
+  
+  else if(model_pred()=="bad"&input$saving_acc=="rich"&input$checking_acc=="little"){
+    #paste(input$name, "is not qualify for the loan")
+    #print()
+    print("Do the following to raise your chance of getting loan: ")
+    print("- Raise your checking account level to rich")
+    print("- Reduce the credit amount")
+    print("- Reduce return duration below this present value")
+  }
+  
+  else if(model_pred()=="bad"&input$saving_acc=="rich"&input$checking_acc=="moderate"){
+    #paste(input$name, "is not qualify for the loan")
+    #print()
+    print("Do the following to raise your chance of getting loan: ")
+    print("- Raise your checking account level to rich")
+    print("- Reduce the credit amount")
+    print("- Very important! reduce the return duration")
+  }
+  
+  else if(model_pred()=="bad"&input$saving_acc=="rich"&input$checking_acc=="rich"){
+    #paste(input$name, "is not qualify for the loan")
+    #print()
+    print("Do the following to raise your chance of getting loan: ")
+    print("- Reduce the credit amount")
+    print("- Very important! reduce the return duration")
+  }
+  
+  else if(model_pred()=="good"){
+    paste("Continue with your good performance record")
+    #paste(input$name, "is qualify for the loan")
+    
+  }
+  
+})
+```
+
+### HISTORY OF APPLICANTS PERFORMANCE
+
+```{r}
+renderPlot({
+  
+  ggplot(loan_data, aes(x=Duration,y=Credit.amount, color=Risk )) +labs(title = "History of Previous Loan Applicants", x="Duration (Month)", y="Credit Amount (#)")+
+    geom_point()+theme_dark() +scale_x_continuous(breaks = seq(0,90,by=6))
+})
+```
+
+### ANALYSIS OF APPLICANTS PERFORMANCE
+
+```{r}
+par(mfrow=c(1,2))
+
+renderPlot({
+  boxplot(Credit.amount~Risk, data=loan_data, main="Boxplot of Credit Amount",col="Green")
+  #ggplot(loan_data, aes(x=Risk, y=Credit.amount))+geom_boxplot()
+})
+
+
+```
+
+### ANALYSIS OF APPLICANTS PERFORMANCE 2
+```{r}
+renderPlot({
+  boxplot(Duration~Risk, data=loan_data, main="Boxplot of Duration",col="Orange")
+})
+
+```
+
+Contact-us{.storyboard data-navmenu=""}
+===============================================================================
+ 
+Sidebar {.sidebar data-width=300}
+----------------------------------------------
+
+**Get in touch with us for your next analytics project**
+
+
+```{r}
+textInput(inputId ="name2", label = "",placeholder = "Full Name*" )
+textInput("company", label = "",placeholder = "Company")
+textInput(inputId ="email", label = "",placeholder = "Email*" )
+textInput("phone",label="",placeholder = "Phone" )
+textInput(inputId ="subject", label = "",placeholder = "Subject*" )
+#textInput(inputId ="message", label = "",placeholder = "Message*" )
+textAreaInput(inputId ="message", label = "",placeholder = "Message*")
+actionButton("submit2", "Submit") 
+
+```
+
+
+```{r}
+
+useroutput <- eventReactive(input$submit2,{
+  if(input$name2 != "" & input$company!= "" & input$email!= "" & input$phone!= "" & input$subject != "" & input$message != ""  ){
+    userData <- data.frame(input$name2,input$company,input$email,input$phone,input$subject,input$message)
+    colnames(userData) <- c("Name","Company","Email","Phone","Subject","Message")
+  }
+  return(userData)
+})
+
+```
+
+### Contact
+
+```{r}
+img(src="email1.png", height=20, width=20)
+
+```
+
+b.adejohnson@hotmail.com
+
+
+```{r}
+img(src="phone1.png", height=20, width=20)
+
+```
+
++2349099921571
+
+```{r}
+img(src="twitter.png", height=20, width=20)
+
+```
+
+@jhonsphorus
+
+```{r}
+
+img(src="linkedin.png", height=20, width=20)
+
+```
+
+https://www.linkedin.com/in/johnson-adebayo/
+
+```{r}
+userData <- read.csv("userentry.csv")
+
+
+renderTable({
+  
+  userData <- rbind(userData, useroutput())
+  
+  # To remove the old "userentry.csv" file
+  file.remove("userentry.csv")
+  # To write and replace the old "userentry.csv" file
+  write.csv(userData,"userentry.csv", row.names = FALSE)
+  #write.csv(useroutput(),"userentry.csv", row.names = FALSE)
+  #useroutput()
+})
+
+```
+
+```{r}
+drive_auth()  
+
+drive_put(media ="C:/Users/usewr/Documents/RProject/Personal_Practice_New/Afriloan/userentry.csv",path = as_id("1G-TakNykaTlaeJtxFd9Q5xf98Bj3ihg4"),name ="USERDATA3",type ="spreadsheet")
+
+```
+
+### Form
+
+```{r}
+
+
+```
+
+
+```{r}
+#rmarkdown::run("Afriloan.Rmd")
+```
+
